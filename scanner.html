@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin:0; background:#000; font-family:Arial,sans-serif; overflow:hidden; }
+    #video { width:100%; height:100vh; object-fit:cover; display:block; }
+    .topbar { position:fixed; top:0; left:0; right:0; padding:16px; background:rgba(0,0,0,.65); color:#fff; text-align:center; font-size:15px; z-index:5; }
+    .frame { position:fixed; top:35%; left:15%; right:15%; bottom:35%; border:3px solid #4ade80; border-radius:12px; z-index:5; box-shadow:0 0 0 2000px rgba(0,0,0,.35); }
+    #result { position:fixed; bottom:70px; left:0; right:0; padding:14px; background:rgba(0,0,0,.8); color:#fff; text-align:center; font-size:16px; z-index:5; min-height:20px; }
+    #cancelBtn { position:fixed; bottom:0; left:0; right:0; width:100%; padding:18px; background:#c0392b; color:#fff; border:none; font-size:16px; font-weight:bold; z-index:5; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <video id="video" autoplay playsinline muted></video>
+  <div class="topbar">📷 Barcode ko green box ke andar rakhein</div>
+  <div class="frame"></div>
+  <div id="result">Camera shuru ho rahi hai...</div>
+  <button id="cancelBtn" onclick="cancelScan()">✕ Cancel — Wapas Jao</button>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js"></script>
+  <script>
+    // GitHub Pages ke liye static URL set kar diya hai
+    var dashboardUrl = "https://sayamnasir7355-art.github.io/sayam-bedding-scanner/";
+    
+    var video = document.getElementById('video');
+    var resultDiv = document.getElementById('result');
+    var scanned = false;
+    var currentStream = null;
+
+    function cancelScan() {
+      stopStream();
+      if (window.opener) { window.close(); }
+      else { window.top.location.href = dashboardUrl; }
+    }
+
+    function stopStream() {
+      if (currentStream) { currentStream.getTracks().forEach(function(t){ t.stop(); }); }
+    }
+
+    function sendResult(code) {
+      scanned = true;
+      resultDiv.innerHTML = '✅ Scan hua: ' + code;
+      stopStream();
+
+      if (window.opener && !window.opener.closed) {
+        try {
+          window.opener.receiveScanResult(code);
+          setTimeout(function(){ window.close(); }, 600);
+          return;
+        } catch(e) {}
+      }
+      try { sessionStorage.setItem('sb_scanned_code', code); } catch(e) {}
+      setTimeout(function(){
+        if (window.opener) window.close();
+        else window.top.location.href = dashboardUrl;
+      }, 800);
+    }
+
+    var constraints = {
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    };
+
+    navigator.mediaDevices.getUserMedia(constraints)
+      .then(function(stream) {
+        currentStream = stream;
+        video.srcObject = stream;
+        video.play();
+        resultDiv.innerHTML = '🔍 Barcode scan karo...';
+        requestAnimationFrame(tick);
+      })
+      .catch(function(err) {
+        navigator.mediaDevices.getUserMedia({ video: true })
+          .then(function(stream) {
+            currentStream = stream;
+            video.srcObject = stream;
+            video.play();
+            resultDiv.innerHTML = '🔍 Barcode scan karo...';
+            requestAnimationFrame(tick);
+          })
+          .catch(function(err2) {
+            resultDiv.innerHTML = '❌ Camera nahi mila.<br><small>Browser settings mein camera allow karein</small>';
+          });
+      });
+
+    function tick() {
+      if (scanned) return;
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        var canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        var code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+        if (code && code.data) {
+          sendResult(code.data);
+          return;
+        }
+      }
+      requestAnimationFrame(tick);
+    }
+  </script>
+</body>
+</html>
