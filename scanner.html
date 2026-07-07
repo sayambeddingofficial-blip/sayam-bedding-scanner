@@ -8,8 +8,11 @@
     body { margin:0; background:#000; font-family:Arial,sans-serif; overflow:hidden; }
     #video { width:100%; height:100vh; object-fit:cover; display:block; }
     .topbar { position:fixed; top:0; left:0; right:0; padding:16px; background:rgba(0,0,0,.65); color:#fff; text-align:center; font-size:15px; z-index:5; }
-    .frame { position:fixed; top:35%; left:15%; right:15%; bottom:35%; border:3px solid #4ade80; border-radius:12px; z-index:5; box-shadow:0 0 0 2000px rgba(0,0,0,.35); }
-    #result { position:fixed; bottom:70px; left:0; right:0; padding:14px; background:rgba(0,0,0,.8); color:#fff; text-align:center; font-size:16px; z-index:5; min-height:20px; }
+    .frame { position:fixed; top:30%; left:15%; right:15%; bottom:42%; border:3px solid #4ade80; border-radius:12px; z-index:5; box-shadow:0 0 0 2000px rgba(0,0,0,.35); }
+    #result { position:fixed; bottom:130px; left:0; right:0; padding:14px; background:rgba(0,0,0,.8); color:#fff; text-align:center; font-size:16px; z-index:5; min-height:20px; }
+    .manualBox { position:fixed; bottom:64px; left:0; right:0; display:flex; gap:8px; padding:8px 12px; background:rgba(0,0,0,.85); z-index:6; }
+    #manualInput { flex:1; padding:10px; border-radius:8px; border:none; font-size:15px; }
+    #manualBtn { padding:10px 16px; border-radius:8px; border:none; background:#2563eb; color:#fff; font-weight:bold; font-size:15px; }
     #cancelBtn { position:fixed; bottom:0; left:0; right:0; width:100%; padding:18px; background:#c0392b; color:#fff; border:none; font-size:16px; font-weight:bold; z-index:5; cursor:pointer; }
   </style>
 </head>
@@ -18,17 +21,25 @@
   <div class="topbar">📷 Barcode ko green box ke andar rakhein</div>
   <div class="frame"></div>
   <div id="result">Camera shuru ho rahi hai...</div>
+
+  <div class="manualBox">
+    <input id="manualInput" type="text" placeholder="Ya barcode manually type karein" autocomplete="off">
+    <button id="manualBtn" onclick="submitManual()">Submit</button>
+  </div>
+
   <button id="cancelBtn" onclick="cancelScan()">✕ Cancel — Wapas Jao</button>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js"></script>
+  <!-- ZXing: QR codes AND linear barcodes (Code128, EAN, UPC, Code39) dono support karta hai -->
+  <script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
   <script>
     // GitHub Pages ke liye static URL set kar diya hai
     var dashboardUrl = "https://sayamnasir7355-art.github.io/sayam-bedding-scanner/";
-    
+
     var video = document.getElementById('video');
     var resultDiv = document.getElementById('result');
+    var manualInput = document.getElementById('manualInput');
     var scanned = false;
-    var currentStream = null;
+    var codeReader = null;
 
     function cancelScan() {
       stopStream();
@@ -37,10 +48,13 @@
     }
 
     function stopStream() {
-      if (currentStream) { currentStream.getTracks().forEach(function(t){ t.stop(); }); }
+      if (codeReader) {
+        try { codeReader.reset(); } catch(e) {}
+      }
     }
 
     function sendResult(code) {
+      if (scanned) return;
       scanned = true;
       resultDiv.innerHTML = '✅ Scan hua: ' + code;
       stopStream();
@@ -59,6 +73,39 @@
       }, 800);
     }
 
+    // Manual typing wala fallback — camera scan na ho paye to bhi kaam chal sake
+    function submitManual() {
+      var val = manualInput.value.trim();
+      if (!val) {
+        manualInput.focus();
+        return;
+      }
+      sendResult(val);
+    }
+
+    manualInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submitManual();
+      }
+    });
+
+    // Konse formats padhne hain — linear barcodes + QR dono shamil hain
+    var hints = new Map();
+    var formats = [
+      ZXing.BarcodeFormat.CODE_128,
+      ZXing.BarcodeFormat.EAN_13,
+      ZXing.BarcodeFormat.EAN_8,
+      ZXing.BarcodeFormat.UPC_A,
+      ZXing.BarcodeFormat.UPC_E,
+      ZXing.BarcodeFormat.CODE_39,
+      ZXing.BarcodeFormat.QR_CODE
+    ];
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+
+    codeReader = new ZXing.BrowserMultiFormatReader(hints);
+
     var constraints = {
       video: {
         facingMode: { ideal: 'environment' },
@@ -67,45 +114,18 @@
       }
     };
 
-    navigator.mediaDevices.getUserMedia(constraints)
-      .then(function(stream) {
-        currentStream = stream;
-        video.srcObject = stream;
-        video.play();
-        resultDiv.innerHTML = '🔍 Barcode scan karo...';
-        requestAnimationFrame(tick);
-      })
-      .catch(function(err) {
-        navigator.mediaDevices.getUserMedia({ video: true })
-          .then(function(stream) {
-            currentStream = stream;
-            video.srcObject = stream;
-            video.play();
-            resultDiv.innerHTML = '🔍 Barcode scan karo...';
-            requestAnimationFrame(tick);
-          })
-          .catch(function(err2) {
-            resultDiv.innerHTML = '❌ Camera nahi mila.<br><small>Browser settings mein camera allow karein</small>';
-          });
-      });
+    resultDiv.innerHTML = '🔍 Barcode scan karo ya neeche manually type karein...';
 
-    function tick() {
+    codeReader.decodeFromConstraints(constraints, video, function(result, err) {
       if (scanned) return;
-      if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        var canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        var ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        var code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
-        if (code && code.data) {
-          sendResult(code.data);
-          return;
-        }
+      if (result) {
+        sendResult(result.getText());
       }
-      requestAnimationFrame(tick);
-    }
+      // err (NotFoundException) har frame pe aata hai jab tak barcode nahi milta —
+      // ye normal hai, ignore karna hai
+    }).catch(function(err) {
+      resultDiv.innerHTML = '❌ Camera nahi mila — neeche manually type kar sakte hain.<br><small>Browser settings mein camera allow karein</small>';
+    });
   </script>
 </body>
 </html>
